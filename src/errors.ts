@@ -1,0 +1,37 @@
+/**
+ * The base error class of ohttp-js.
+ */
+class OhttpError extends Error {
+  public constructor(e: unknown) {
+    let message: string;
+
+    if (e instanceof Error) {
+      message = e.message;
+    } else if (typeof e === "string") {
+      message = e;
+    } else {
+      message = "";
+    }
+    super(message);
+
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, this.constructor);
+    }
+    this.name = this.constructor.name;
+    if (this.message === "") {
+      this.message = this.name;
+    } else {
+      this.message = this.name + ": " + this.message;
+    }
+  }
+}
+
+/**
+ * A TBD failure or error.
+ */
+export class TodoError extends OhttpError {}
+
+/**
+ * Not supported failure.
+ */
+ export class NotSupportedError extends OhttpError {}
