@@ -27,6 +27,16 @@ class OhttpError extends Error {
 }
 
 /**
+ * Invalid (or unsupported) HPKE ciphersuite.
+ */
+export class InvalidHpkeCiphersuiteError extends OhttpError {}
+
+/**
+ * Invalid key configuration ID.
+ */
+export class InvalidConfigIdError extends OhttpError {}
+
+/**
  * A TBD failure or error.
  */
 export class TodoError extends OhttpError {}

@@ -1,7 +1,16 @@
 import { loadCrypto } from "./webCrypto";
 import { i2Osp, concatArrays, max } from "./utils";
+import { InvalidConfigIdError, InvalidHpkeCiphersuiteError } from "./errors";
 
 const { Kem, Kdf, Aead, CipherSuite } = require("hpke-js");
+
+const invalidKeyIdErrorString = "Invalid configuration ID";
+const invalidHpkeCiphersuiteErrorString = "Invalid HPKE ciphersuite";
+
+const requestInfoLabel = "message/bhttp response";
+const responseInfoLabel = "message/bhttp response";
+const aeadKeyLabel = "key";
+const aeadNonceLabel = "nonce";
 
 async function randomBytes(l:number): Promise<Uint8Array> {
     var buffer = new Uint8Array(l);
@@ -10,14 +19,27 @@ async function randomBytes(l:number): Promise<Uint8Array> {
     return buffer;
 }
 
+function checkHpkeCiphersuite(kem: typeof Kem, kdf: typeof Kdf, aead: typeof Aead) {
+    if (kem != Kem.DhkemX25519HkdfSha256 && 
+        kdf != Kdf.HkdfSha256 &&
+        aead != Aead.Aes128Gcm) {
+        throw new InvalidHpkeCiphersuiteError(invalidHpkeCiphersuiteErrorString);
+    }
+}
+
 export class KeyConfig {
-    kem: typeof Kem;
-    kdf: typeof Kdf;
-    aead: typeof Aead;
-    keyPair: Promise<CryptoKeyPair>;
+    public keyId: number;
+    public kem: typeof Kem;
+    public kdf: typeof Kdf;
+    public aead: typeof Aead;
+    public keyPair: Promise<CryptoKeyPair>; // XXX(caw): should this be public?
  
-    constructor() {
-        this.kem = Kem.DhkemP256HkdfSha256;
+    constructor(keyId: number) {
+        if (keyId < 0 || keyId > 255) {
+            throw new InvalidConfigIdError(invalidKeyIdErrorString);
+        }
+        this.keyId = keyId
+        this.kem = Kem.DhkemX25519HkdfSha256;
         this.kdf = Kdf.HkdfSha256;
         this.aead = Aead.Aes128Gcm;
         const suite = new CipherSuite({
@@ -31,6 +53,7 @@ export class KeyConfig {
     async publicConfig(): Promise<PublicKeyConfig> {
         const publicKey = (await this.keyPair).publicKey
         return new PublicKeyConfig(
+            this.keyId,
             this.kem,
             this.kdf,
             this.aead,
@@ -40,13 +63,19 @@ export class KeyConfig {
 }
 
 export class PublicKeyConfig {
-    kem: typeof Kem;
-    kdf: typeof Kdf;
-    aead: typeof Aead;
-    publicKey: CryptoKey;
+    public keyId: number;
+    public kem: typeof Kem;
+    public kdf: typeof Kdf;
+    public aead: typeof Aead;
+    public publicKey: CryptoKey; // XXX(caw): should this be public?
 
-    constructor(kem: typeof Kem, kdf: typeof Kdf, aead: typeof Aead, publicKey: CryptoKey) {
-        // XXX(caw): check these for validity
+    constructor(keyId: number, kem: typeof Kem, kdf: typeof Kdf, aead: typeof Aead, publicKey: CryptoKey) {
+        if (keyId < 0 || keyId > 255) {
+            throw new InvalidConfigIdError(invalidKeyIdErrorString);
+        }
+        this.keyId = keyId;
+
+        checkHpkeCiphersuite(kem, kdf, aead);
         this.kem = kem;
         this.kdf = kdf;
         this.aead = aead;
@@ -62,17 +91,19 @@ export class ServerResponse {
         this.responseNonce = responseNonce;
         this.encResponse = encResponse;
     }
+
+    encode(): Uint8Array {
+        return concatArrays(this.responseNonce, this.encResponse)
+    }
 }
 
 export class ServerResponseContext {
     public readonly request: Uint8Array;
+    private enc: Uint8Array;
+    private secret: Uint8Array;
+    private suite: typeof CipherSuite;
 
-    enc: Uint8Array;
-    secret: Uint8Array;
-    suite: typeof CipherSuite;
-
-    // XXX(caw): tidy up this interface
-    constructor(request: Uint8Array, suite: typeof CipherSuite, secret: Uint8Array, enc: Uint8Array) {
+    constructor(suite: typeof CipherSuite, request: Uint8Array, secret: Uint8Array, enc: Uint8Array) {
         this.request = request;
         this.enc = enc;
         this.secret = secret;
@@ -87,25 +118,25 @@ export class ServerResponseContext {
         const prk = await kdf.extract(salt, this.secret);
         const aeadKey = await kdf.expand(
             prk,
-            new TextEncoder().encode("key"),
+            new TextEncoder().encode(aeadKeyLabel),
             this.suite.aeadKeySize,
         );
         const aeadNonce = await kdf.expand(
             prk,
-            new TextEncoder().encode("nonce"),
+            new TextEncoder().encode(aeadNonceLabel),
             this.suite.aeadNonceSize,
         );
 
         const aeadKeyS = await this.suite.createAeadKey(aeadKey);
-        const encResponse = await aeadKeyS.seal(aeadNonce, encodedResponse, new TextEncoder().encode(""));
+        const encResponse = new Uint8Array(await aeadKeyS.seal(aeadNonce, encodedResponse, new TextEncoder().encode("")));
 
         return new ServerResponse(responseNonce, encResponse);
     }
 }
 
 export class Server {
-    config: KeyConfig;
-    suite: typeof CipherSuite;
+    private config: KeyConfig;
+    private suite: typeof CipherSuite;
 
     constructor(config: KeyConfig) {
         this.config = config;
@@ -118,18 +149,14 @@ export class Server {
 
     async decapsulate(clientRequest: ClientRequest): Promise<ServerResponseContext> {
         // XXX(caw): move to header and create during construction (in prepare helper function)
-        const key_id = 0x00;
-        const kem_id = i2Osp(this.suite.kem, 2);
-        const kdf_id = i2Osp(this.suite.kdf, 2);
-        const aead_id = i2Osp(this.suite.aead, 2);
-        var hdr = new Uint8Array([key_id]);
-        hdr = concatArrays(hdr, kem_id);
-        hdr = concatArrays(hdr, kdf_id);
-        hdr = concatArrays(hdr, aead_id);
+        var hdr = new Uint8Array([this.config.keyId]);
+        hdr = concatArrays(hdr, i2Osp(this.suite.kem, 2));
+        hdr = concatArrays(hdr, i2Osp(this.suite.kdf, 2));
+        hdr = concatArrays(hdr, i2Osp(this.suite.aead, 2));
 
-        var info = new Uint8Array(new TextEncoder().encode("message/bhttp request")) // TODO(caw): move to constant
-        info = concatArrays(info, new Uint8Array([0x00]))
-        info = concatArrays(info, hdr)
+        var info = new Uint8Array(new TextEncoder().encode(requestInfoLabel));
+        info = concatArrays(info, new Uint8Array([0x00]));
+        info = concatArrays(info, hdr);
 
         const recipientKeyPair = await this.config.keyPair;
         const recipient = await this.suite.createRecipientContext({
@@ -140,16 +167,23 @@ export class Server {
           
         const request = new Uint8Array(await recipient.open(clientRequest.encapsulatedReq));
         
-        const exportContext = new TextEncoder().encode("message/bhttp response"); // TODO(caw): move to constant
+        const exportContext = new TextEncoder().encode(responseInfoLabel);
         const secret = new Uint8Array(recipient.export(exportContext, this.suite.aeadKeySize));
 
-        return new ServerResponseContext(request, this.suite, secret, clientRequest.enc);
+        return new ServerResponseContext(this.suite, request, secret, clientRequest.enc);
+    }
+
+    async decodeAndDecapsulate(msg: Uint8Array): Promise<ServerResponseContext> {
+        let encSize = 32; // TODO(caw): need a function in hpke-js to get KEM shared secret size (Nenc)
+        let enc = msg.slice(0, encSize);
+        let encRequest = msg.slice(encSize, msg.length);
+        return this.decapsulate(new ClientRequest(enc, encRequest));
     }
 }
 
 export class Client {
-    config: PublicKeyConfig;
-    suite: typeof CipherSuite;
+    private config: PublicKeyConfig;
+    private suite: typeof CipherSuite;
 
     constructor(config: PublicKeyConfig) {
         this.config = config;
@@ -162,18 +196,14 @@ export class Client {
    
     async encapsulate(encodedRequest: Uint8Array): Promise<ClientRequestContext> {
         // XXX(caw): move to header and create during construction (in prepare helper function)
-        const key_id = 0x00;
-        const kem_id = i2Osp(this.suite.kem, 2);
-        const kdf_id = i2Osp(this.suite.kdf, 2);
-        const aead_id = i2Osp(this.suite.aead, 2);
-        var hdr = new Uint8Array([key_id]);
-        hdr = concatArrays(hdr, kem_id);
-        hdr = concatArrays(hdr, kdf_id);
-        hdr = concatArrays(hdr, aead_id);
+        var hdr = new Uint8Array([this.config.keyId]);
+        hdr = concatArrays(hdr, i2Osp(this.suite.kem, 2));
+        hdr = concatArrays(hdr, i2Osp(this.suite.kdf, 2));
+        hdr = concatArrays(hdr, i2Osp(this.suite.aead, 2));
 
-        var info = new Uint8Array(new TextEncoder().encode("message/bhttp request")) // TODO(caw): move to constant
-        info = concatArrays(info, new Uint8Array([0x00]))
-        info = concatArrays(info, hdr)
+        var info = new Uint8Array(new TextEncoder().encode(requestInfoLabel));
+        info = concatArrays(info, new Uint8Array([0x00]));
+        info = concatArrays(info, hdr);
 
         const publicKey = await this.config.publicKey;
         const sender = await this.suite.createSenderContext({
@@ -181,10 +211,11 @@ export class Client {
             info: info,
         });
 
-        const encRequest = await sender.seal(encodedRequest);
-        const exportContext = new TextEncoder().encode("message/bhttp response"); // TODO(caw): move to constant
+        const encRequest = new Uint8Array(await sender.seal(encodedRequest));
+        const enc = new Uint8Array(sender.enc);
+        const exportContext = new TextEncoder().encode(responseInfoLabel);
         const secret = new Uint8Array(sender.export(exportContext, this.suite.aeadKeySize));
-        let clientRequest = new ClientRequestContext(encRequest, sender.enc, this.suite, secret);
+        let clientRequest = new ClientRequestContext(this.suite, encRequest, enc, secret);
 
         return clientRequest;
     }
@@ -198,15 +229,19 @@ class ClientRequest {
         this.encapsulatedReq = encapsulatedReq;
         this.enc = enc;
     }
+
+    encode(): Uint8Array {
+        const result = concatArrays(this.enc, this.encapsulatedReq);
+        return result;
+    }
 }
 
 class ClientRequestContext {
     public readonly request: ClientRequest;
+    private secret: Uint8Array;
+    private suite: typeof CipherSuite;
 
-    secret: Uint8Array;
-    suite: typeof CipherSuite;
-
-    constructor(encapsulatedReq: Uint8Array, enc: Uint8Array, suite: typeof CipherSuite, secret: Uint8Array) {
+    constructor(suite: typeof CipherSuite, encapsulatedReq: Uint8Array, enc: Uint8Array, secret: Uint8Array) {
         this.request = new ClientRequest(enc, encapsulatedReq);
         this.secret = secret;
         this.suite = suite;
@@ -220,12 +255,12 @@ class ClientRequestContext {
         const prk = await kdf.extract(salt, this.secret);
         const aeadKey = await kdf.expand(
             prk,
-            new TextEncoder().encode("key"), // TODO(caw): move to constant
+            new TextEncoder().encode(aeadKeyLabel),
             this.suite.aeadKeySize,
         );
         const aeadNonce = await kdf.expand(
             prk,
-            new TextEncoder().encode("nonce"), // TODO(caw): move to constant
+            new TextEncoder().encode(aeadNonceLabel),
             this.suite.aeadNonceSize,
         );
 
@@ -233,5 +268,12 @@ class ClientRequestContext {
         const request = new Uint8Array(await aeadKeyS.open(aeadNonce, serverResponse.encResponse, new TextEncoder().encode("")));
 
         return request;
+    }
+
+    async decodeAndDecapsulate(msg: Uint8Array): Promise<Uint8Array> {
+        let responseNonceLen = max(this.suite.aeadKeySize, this.suite.aeadNonceSize)
+        let responseNonce = msg.slice(0, responseNonceLen);
+        let encResponse = msg.slice(responseNonceLen, msg.length);
+        return this.decapsulate(new ServerResponse(responseNonce, encResponse));
     }
 }
