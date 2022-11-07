@@ -37,6 +37,11 @@ export class InvalidHpkeCiphersuiteError extends OhttpError {}
 export class InvalidConfigIdError extends OhttpError {}
 
 /**
+ * Invalid content type.
+ */
+export class InvalidContentTypeError extends OhttpError {}
+
+/**
  * A TBD failure or error.
  */
 export class TodoError extends OhttpError {}

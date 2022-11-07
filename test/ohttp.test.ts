@@ -15,7 +15,7 @@ describe("test OHTTP end-to-end", () => {
 
         let server = new Server(keyConfig);
         let responseContext = await server.decapsulate(clientRequest);
-        expect(responseContext.request).toStrictEqual(encodedRequest);
+        expect(responseContext.encodedRequest).toStrictEqual(encodedRequest);
 
         let serverResponse = await responseContext.encapsulate(encodedResponse);
         let finalResponse = await requestContext.decapsulate(serverResponse);
@@ -37,7 +37,7 @@ describe("test OHTTP end-to-end", () => {
 
         let server = new Server(keyConfig);
         let responseContext = await server.decodeAndDecapsulate(encodedClientRequest);
-        expect(responseContext.request).toStrictEqual(encodedRequest);
+        expect(responseContext.encodedRequest).toStrictEqual(encodedRequest);
 
         let serverResponse = await responseContext.encapsulate(encodedResponse);
         let encodedServerResponse = serverResponse.encode();

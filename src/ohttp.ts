@@ -1,11 +1,12 @@
 import { loadCrypto } from "./webCrypto";
 import { i2Osp, concatArrays, max } from "./utils";
-import { InvalidConfigIdError, InvalidHpkeCiphersuiteError } from "./errors";
+import { InvalidConfigIdError, InvalidHpkeCiphersuiteError, InvalidContentTypeError } from "./errors";
 
 const { Kem, Kdf, Aead, CipherSuite } = require("hpke-js");
 
 const invalidKeyIdErrorString = "Invalid configuration ID";
 const invalidHpkeCiphersuiteErrorString = "Invalid HPKE ciphersuite";
+const invalidContentTypeErrorString = "Invalid content type";
 
 const requestInfoLabel = "message/bhttp response";
 const responseInfoLabel = "message/bhttp response";
@@ -98,13 +99,13 @@ export class ServerResponse {
 }
 
 export class ServerResponseContext {
-    public readonly request: Uint8Array;
+    public readonly encodedRequest: Uint8Array;
     private enc: Uint8Array;
     private secret: Uint8Array;
     private suite: typeof CipherSuite;
 
     constructor(suite: typeof CipherSuite, request: Uint8Array, secret: Uint8Array, enc: Uint8Array) {
-        this.request = request;
+        this.encodedRequest = request;
         this.enc = enc;
         this.secret = secret;
         this.suite = suite;
@@ -131,6 +132,24 @@ export class ServerResponseContext {
         const encResponse = new Uint8Array(await aeadKeyS.seal(aeadNonce, encodedResponse, new TextEncoder().encode("")));
 
         return new ServerResponse(responseNonce, encResponse);
+    }
+
+    async encapsulateResponse(response: Response): Promise<Response> {
+        // let encodedResponse = bhttp.encodeResponse(response);
+        let encodedResponse = new Uint8Array();
+
+        let serverResponse = await this.encapsulate(encodedResponse);
+        return new Response(serverResponse.encode(), {
+            status: 200,
+            headers: {
+                'Content-Type': "message/ohttp-res",
+            }
+        });
+    }
+
+    request(): Request {
+        // return bhttp.decodeRequest(this.encodedRequest)
+        return new Request("https://writeme.example");
     }
 }
 
@@ -174,10 +193,21 @@ export class Server {
     }
 
     async decodeAndDecapsulate(msg: Uint8Array): Promise<ServerResponseContext> {
-        let encSize = 32; // TODO(caw): need a function in hpke-js to get KEM shared secret size (Nenc)
+        let encSize = this.suite.kemEncSize;
         let enc = msg.slice(0, encSize);
         let encRequest = msg.slice(encSize, msg.length);
         return this.decapsulate(new ClientRequest(enc, encRequest));
+    }
+
+    async decapsulateRequest(request: Request): Promise<ServerResponseContext> {
+        const { headers } = request;
+        const contentType = headers.get('content-type');
+        if (contentType != "message/ohttp-req") {
+            throw new InvalidContentTypeError(invalidContentTypeErrorString);
+        }
+    
+        let encapRequestBody = new Uint8Array(await request.arrayBuffer());
+        return this.decodeAndDecapsulate(encapRequestBody);
     }
 }
 
@@ -219,6 +249,14 @@ export class Client {
 
         return clientRequest;
     }
+
+    async encapsulateRequest(originalRequest: Request): Promise<ClientRequestContext> {
+        // let enodedRequest = bhttp.encodeRequest(originalRequest)
+        let encodedRequest = new Uint8Array();
+
+        let encapRequestContext = await this.encapsulate(encodedRequest);
+        return encapRequestContext;
+    }
 }
 
 class ClientRequest {
@@ -233,6 +271,17 @@ class ClientRequest {
     encode(): Uint8Array {
         const result = concatArrays(this.enc, this.encapsulatedReq);
         return result;
+    }
+
+    request(relayUrl: string): Request {
+        let encapsulatedRequest = this.encode();
+        return new Request(relayUrl, {
+            method: 'POST', 
+            body: encapsulatedRequest,
+            headers: {
+                'Content-Type': 'message/ohttp-req'
+            },
+        });
     }
 }
 
@@ -275,5 +324,19 @@ class ClientRequestContext {
         let responseNonce = msg.slice(0, responseNonceLen);
         let encResponse = msg.slice(responseNonceLen, msg.length);
         return this.decapsulate(new ServerResponse(responseNonce, encResponse));
+    }
+
+    async decapsulateResponse(response: Response): Promise<Request> {
+        const { headers } = response;
+        const contentType = headers.get('content-type');
+        if (contentType != "message/ohttp-res") {
+            throw new InvalidContentTypeError(invalidContentTypeErrorString);
+        }
+    
+        let encapResponseBody = new Uint8Array(await response.arrayBuffer());
+        let encodedRequest = await this.decodeAndDecapsulate(encapResponseBody);
+
+        // return bhttp.decodeResponse(encodedRequest);
+        return new Request("https://writeme.example");
     }
 }

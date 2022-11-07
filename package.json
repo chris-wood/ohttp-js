@@ -24,6 +24,6 @@
     "typescript": "^4.8.4"
   },
   "dependencies": {
-    "hpke-js": "^0.14.0"
+    "hpke-js": "^0.15.0"
   }
 }
