@@ -45,4 +45,31 @@ describe("test OHTTP end-to-end", () => {
         let finalResponse = await requestContext.decodeAndDecapsulate(encodedServerResponse);
         expect(finalResponse).toStrictEqual(encodedResponse);
     });
+
+    it("Happy Path with Request/Response encoding and decoding", async () => {
+        const keyId = 0x01;
+        const keyConfig = new KeyConfig(keyId);
+        const publicKeyConfig = await keyConfig.publicConfig();
+
+        const requestUrl = "https://target.example/query?foo=bar";
+        const request = new Request(requestUrl);
+        const response = new Response("baz", {
+            headers: { "Content-Type": "text/plain" },
+        });
+
+        let client = new Client(publicKeyConfig);
+        let requestContext = await client.encapsulateRequest(request);
+        let clientRequest = requestContext.request;
+        let encodedClientRequest = clientRequest.encode();
+
+        let server = new Server(keyConfig);
+        let responseContext = await server.decodeAndDecapsulate(encodedClientRequest);
+        let receivedRequest = responseContext.request();
+        expect(receivedRequest.url).toEqual(requestUrl);
+
+        let serverResponse = await responseContext.encapsulateResponse(response);
+
+        let finalResponse = await requestContext.decapsulateResponse(serverResponse);
+        expect(finalResponse.headers.get("Content-Type")).toStrictEqual("text/plain");
+    });
 });

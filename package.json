@@ -24,6 +24,7 @@
     "typescript": "^4.8.4"
   },
   "dependencies": {
+    "bhttp-js": "^0.2.1",
     "hpke-js": "^0.15.0"
   }
 }

@@ -3,6 +3,7 @@ import { i2Osp, concatArrays, max } from "./utils";
 import { InvalidConfigIdError, InvalidHpkeCiphersuiteError, InvalidContentTypeError } from "./errors";
 
 const { Kem, Kdf, Aead, CipherSuite } = require("hpke-js");
+const { BHttpEncoder, BHttpDecoder } = require("bhttp-js");
 
 const invalidKeyIdErrorString = "Invalid configuration ID";
 const invalidHpkeCiphersuiteErrorString = "Invalid HPKE ciphersuite";
@@ -135,8 +136,8 @@ export class ServerResponseContext {
     }
 
     async encapsulateResponse(response: Response): Promise<Response> {
-        // let encodedResponse = bhttp.encodeResponse(response);
-        let encodedResponse = new Uint8Array();
+        let encoder = new BHttpEncoder();
+        let encodedResponse = encoder.encodeResponse(response);
 
         let serverResponse = await this.encapsulate(encodedResponse);
         return new Response(serverResponse.encode(), {
@@ -148,8 +149,8 @@ export class ServerResponseContext {
     }
 
     request(): Request {
-        // return bhttp.decodeRequest(this.encodedRequest)
-        return new Request("https://writeme.example");
+        let decoder = new BHttpDecoder();
+        return decoder.decodeRequest(this.encodedRequest);
     }
 }
 
@@ -251,9 +252,8 @@ export class Client {
     }
 
     async encapsulateRequest(originalRequest: Request): Promise<ClientRequestContext> {
-        // let enodedRequest = bhttp.encodeRequest(originalRequest)
-        let encodedRequest = new Uint8Array();
-
+        let encoder = new BHttpEncoder();
+        let encodedRequest = encoder.encodeRequest(originalRequest);
         let encapRequestContext = await this.encapsulate(encodedRequest);
         return encapRequestContext;
     }
@@ -336,7 +336,7 @@ class ClientRequestContext {
         let encapResponseBody = new Uint8Array(await response.arrayBuffer());
         let encodedRequest = await this.decodeAndDecapsulate(encapResponseBody);
 
-        // return bhttp.decodeResponse(encodedRequest);
-        return new Request("https://writeme.example");
+        let decoder = new BHttpDecoder();
+        return decoder.decodeResponse(encodedRequest);
     }
 }
