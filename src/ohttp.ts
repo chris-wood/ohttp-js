@@ -137,7 +137,7 @@ export class ServerResponseContext {
 
     async encapsulateResponse(response: Response): Promise<Response> {
         let encoder = new BHttpEncoder();
-        let encodedResponse = encoder.encodeResponse(response);
+        let encodedResponse = await encoder.encodeResponse(response);
 
         let serverResponse = await this.encapsulate(encodedResponse);
         return new Response(serverResponse.encode(), {
@@ -253,7 +253,7 @@ export class Client {
 
     async encapsulateRequest(originalRequest: Request): Promise<ClientRequestContext> {
         let encoder = new BHttpEncoder();
-        let encodedRequest = encoder.encodeRequest(originalRequest);
+        let encodedRequest = await encoder.encodeRequest(originalRequest);
         let encapRequestContext = await this.encapsulate(encodedRequest);
         return encapRequestContext;
     }
