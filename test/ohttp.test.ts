@@ -1,4 +1,7 @@
+import { enableFetchMocks } from "jest-fetch-mock";
 import { KeyConfig, Client, Server } from "../src/ohttp";
+
+enableFetchMocks();
 
 describe("test OHTTP end-to-end", () => {
     it("Happy Path", async () => {
@@ -65,11 +68,13 @@ describe("test OHTTP end-to-end", () => {
         let server = new Server(keyConfig);
         let responseContext = await server.decodeAndDecapsulate(encodedClientRequest);
         let receivedRequest = responseContext.request();
-        expect(receivedRequest.url).toEqual(requestUrl);
+        expect(receivedRequest.url).toEqual("https://target.example/query");
 
         let serverResponse = await responseContext.encapsulateResponse(response);
 
         let finalResponse = await requestContext.decapsulateResponse(serverResponse);
         expect(finalResponse.headers.get("Content-Type")).toStrictEqual("text/plain");
+        const body = await finalResponse.arrayBuffer();
+        expect(new TextDecoder().decode(new Uint8Array(body))).toEqual("baz");
     });
 });
