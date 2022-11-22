@@ -1,7 +1,7 @@
 {
   "imports": {
-    "testing/": "https://deno.land/std@0.142.0/testing/",
-    "dnt": "https://deno.land/x/dnt@0.27.0/mod.ts",
+    "testing/": "https://deno.land/std@0.163.0/testing/",
+    "dnt": "https://deno.land/x/dnt@0.31.0/mod.ts",
     "hpke": "https://deno.land/x/hpke@v0.15.0/mod.ts",
     "bhttp": "https://deno.land/x/bhttp@v0.2.1/mod.ts"
   }
