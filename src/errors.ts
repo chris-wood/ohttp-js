@@ -49,4 +49,4 @@ export class TodoError extends OhttpError {}
 /**
  * Not supported failure.
  */
- export class NotSupportedError extends OhttpError {}
+export class NotSupportedError extends OhttpError {}

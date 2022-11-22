@@ -1,6 +1,6 @@
-import { isBrowser, isCloudflareWorkers } from "./utils";
+import { isBrowser, isCloudflareWorkers } from "./utils.ts";
 
-import * as errors from "./errors";
+import * as errors from "./errors.ts";
 
 export class WebCrypto {
   protected _api: SubtleCrypto;

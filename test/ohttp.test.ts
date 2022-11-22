@@ -1,80 +1,90 @@
-import { enableFetchMocks } from "jest-fetch-mock";
-import { KeyConfig, Client, Server } from "../src/ohttp";
+import { assertEquals } from "testing/asserts.ts";
+import { describe, it } from "testing/bdd.ts";
 
-enableFetchMocks();
+import { Client, KeyConfig, Server } from "../src/ohttp.ts";
+
+// enableFetchMocks();
 
 describe("test OHTTP end-to-end", () => {
-    it("Happy Path", async () => {
-        const keyId = 0x01;
-        const keyConfig = new KeyConfig(keyId);
-        const publicKeyConfig = await keyConfig.publicConfig();
+  it("Happy Path", async () => {
+    const keyId = 0x01;
+    const keyConfig = new KeyConfig(keyId);
+    const publicKeyConfig = await keyConfig.publicConfig();
 
-        let encodedRequest = new TextEncoder().encode("Happy");
-        let encodedResponse = new TextEncoder().encode("Path");
+    const encodedRequest = new TextEncoder().encode("Happy");
+    const encodedResponse = new TextEncoder().encode("Path");
 
-        let client = new Client(publicKeyConfig);
-        let requestContext = await client.encapsulate(encodedRequest);
-        let clientRequest = requestContext.request;
+    const client = new Client(publicKeyConfig);
+    const requestContext = await client.encapsulate(encodedRequest);
+    const clientRequest = requestContext.request;
 
-        let server = new Server(keyConfig);
-        let responseContext = await server.decapsulate(clientRequest);
-        expect(responseContext.encodedRequest).toStrictEqual(encodedRequest);
+    const server = new Server(keyConfig);
+    const responseContext = await server.decapsulate(clientRequest);
+    assertEquals(responseContext.encodedRequest, encodedRequest);
 
-        let serverResponse = await responseContext.encapsulate(encodedResponse);
-        let finalResponse = await requestContext.decapsulate(serverResponse);
-        expect(finalResponse).toStrictEqual(encodedResponse);
+    const serverResponse = await responseContext.encapsulate(encodedResponse);
+    const finalResponse = await requestContext.decapsulate(serverResponse);
+    assertEquals(finalResponse, encodedResponse);
+  });
+
+  it("Happy Path with encoding and decoding", async () => {
+    const keyId = 0x01;
+    const keyConfig = new KeyConfig(keyId);
+    const publicKeyConfig = await keyConfig.publicConfig();
+
+    const encodedRequest = new TextEncoder().encode("Happy");
+    const encodedResponse = new TextEncoder().encode("Path");
+
+    const client = new Client(publicKeyConfig);
+    const requestContext = await client.encapsulate(encodedRequest);
+    const clientRequest = requestContext.request;
+    const encodedClientRequest = clientRequest.encode();
+
+    const server = new Server(keyConfig);
+    const responseContext = await server.decodeAndDecapsulate(
+      encodedClientRequest,
+    );
+    assertEquals(responseContext.encodedRequest, encodedRequest);
+
+    const serverResponse = await responseContext.encapsulate(encodedResponse);
+    const encodedServerResponse = serverResponse.encode();
+
+    const finalResponse = await requestContext.decodeAndDecapsulate(
+      encodedServerResponse,
+    );
+    assertEquals(finalResponse, encodedResponse);
+  });
+
+  it("Happy Path with Request/Response encoding and decoding", async () => {
+    const keyId = 0x01;
+    const keyConfig = new KeyConfig(keyId);
+    const publicKeyConfig = await keyConfig.publicConfig();
+
+    const requestUrl = "https://target.example/query?foo=bar";
+    const request = new Request(requestUrl);
+    const response = new Response("baz", {
+      headers: { "Content-Type": "text/plain" },
     });
 
-    it("Happy Path with encoding and decoding", async () => {
-        const keyId = 0x01;
-        const keyConfig = new KeyConfig(keyId);
-        const publicKeyConfig = await keyConfig.publicConfig();
+    const client = new Client(publicKeyConfig);
+    const requestContext = await client.encapsulateRequest(request);
+    const clientRequest = requestContext.request;
+    const encodedClientRequest = clientRequest.encode();
 
-        let encodedRequest = new TextEncoder().encode("Happy");
-        let encodedResponse = new TextEncoder().encode("Path");
+    const server = new Server(keyConfig);
+    const responseContext = await server.decodeAndDecapsulate(
+      encodedClientRequest,
+    );
+    const receivedRequest = responseContext.request();
+    assertEquals(receivedRequest.url, "https://target.example/query");
 
-        let client = new Client(publicKeyConfig);
-        let requestContext = await client.encapsulate(encodedRequest);
-        let clientRequest = requestContext.request;
-        let encodedClientRequest = clientRequest.encode();
+    const serverResponse = await responseContext.encapsulateResponse(response);
 
-        let server = new Server(keyConfig);
-        let responseContext = await server.decodeAndDecapsulate(encodedClientRequest);
-        expect(responseContext.encodedRequest).toStrictEqual(encodedRequest);
-
-        let serverResponse = await responseContext.encapsulate(encodedResponse);
-        let encodedServerResponse = serverResponse.encode();
-
-        let finalResponse = await requestContext.decodeAndDecapsulate(encodedServerResponse);
-        expect(finalResponse).toStrictEqual(encodedResponse);
-    });
-
-    it("Happy Path with Request/Response encoding and decoding", async () => {
-        const keyId = 0x01;
-        const keyConfig = new KeyConfig(keyId);
-        const publicKeyConfig = await keyConfig.publicConfig();
-
-        const requestUrl = "https://target.example/query?foo=bar";
-        const request = new Request(requestUrl);
-        const response = new Response("baz", {
-            headers: { "Content-Type": "text/plain" },
-        });
-
-        let client = new Client(publicKeyConfig);
-        let requestContext = await client.encapsulateRequest(request);
-        let clientRequest = requestContext.request;
-        let encodedClientRequest = clientRequest.encode();
-
-        let server = new Server(keyConfig);
-        let responseContext = await server.decodeAndDecapsulate(encodedClientRequest);
-        let receivedRequest = responseContext.request();
-        expect(receivedRequest.url).toEqual("https://target.example/query");
-
-        let serverResponse = await responseContext.encapsulateResponse(response);
-
-        let finalResponse = await requestContext.decapsulateResponse(serverResponse);
-        expect(finalResponse.headers.get("Content-Type")).toStrictEqual("text/plain");
-        const body = await finalResponse.arrayBuffer();
-        expect(new TextDecoder().decode(new Uint8Array(body))).toEqual("baz");
-    });
+    const finalResponse = await requestContext.decapsulateResponse(
+      serverResponse,
+    );
+    assertEquals(finalResponse.headers.get("Content-Type"), "text/plain");
+    const body = await finalResponse.arrayBuffer();
+    assertEquals(new TextDecoder().decode(new Uint8Array(body)), "baz");
+  });
 });

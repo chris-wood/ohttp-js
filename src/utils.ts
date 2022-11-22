@@ -45,26 +45,26 @@ export function i2Osp(n: number, w: number): Uint8Array {
 
 /**
  * TODO(caw): writeme
- * @param a 
- * @param b 
- * @returns 
+ * @param a
+ * @param b
+ * @returns
  */
 export function concatArrays(a: Uint8Array, b: Uint8Array): Uint8Array {
-    var c = new Uint8Array(a.length + b.length);
-    c.set(a, 0);
-    c.set(b, a.length);
-    return c;
+  const c = new Uint8Array(a.length + b.length);
+  c.set(a, 0);
+  c.set(b, a.length);
+  return c;
 }
 
 /**
  * TODO(caw): writeme
- * @param a 
- * @param b 
- * @returns 
+ * @param a
+ * @param b
+ * @returns
  */
 export function max(a: number, b: number): number {
   if (a > b) {
-      return a;
+    return a;
   }
   return b;
 }
