@@ -1,9 +1,7 @@
-import { assertEquals } from "testing/asserts.ts";
+import { assertEquals, assertStrictEquals } from "testing/asserts.ts";
 import { describe, it } from "testing/bdd.ts";
 
 import { Client, KeyConfig, Server } from "../src/ohttp.ts";
-
-// enableFetchMocks();
 
 describe("test OHTTP end-to-end", () => {
   it("Happy Path", async () => {
@@ -76,15 +74,15 @@ describe("test OHTTP end-to-end", () => {
       encodedClientRequest,
     );
     const receivedRequest = responseContext.request();
-    assertEquals(receivedRequest.url, "https://target.example/query");
+    assertStrictEquals(receivedRequest.url, "https://target.example/query");
 
     const serverResponse = await responseContext.encapsulateResponse(response);
 
     const finalResponse = await requestContext.decapsulateResponse(
       serverResponse,
     );
-    assertEquals(finalResponse.headers.get("Content-Type"), "text/plain");
+    assertStrictEquals(finalResponse.headers.get("Content-Type"), "text/plain");
     const body = await finalResponse.arrayBuffer();
-    assertEquals(new TextDecoder().decode(new Uint8Array(body)), "baz");
+    assertStrictEquals(new TextDecoder().decode(new Uint8Array(body)), "baz");
   });
 });
