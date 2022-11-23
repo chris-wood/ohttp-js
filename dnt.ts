@@ -17,7 +17,7 @@ await build({
     deno: "dev",
   },
   package: {
-    name: "ohttp-js",
+    name: "ohttp",
     version: Deno.args[0],
     description: "Oblivious HTTP Javascript library",
     repository: {
