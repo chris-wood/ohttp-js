@@ -9,6 +9,7 @@ await build({
   test: true,
   declaration: true,
   scriptModule: "umd",
+  alwaysStrict: false,
   importMap: "./import-map.json",
   compilerOptions: {
     lib: ["es2021", "dom"],
@@ -17,7 +18,7 @@ await build({
     deno: "dev",
   },
   package: {
-    name: "ohttp",
+    name: "ohttp-js",
     version: Deno.args[0],
     description: "Oblivious HTTP Javascript library",
     repository: {
@@ -36,8 +37,7 @@ await build({
       "./package.json": "./package.json",
     },
     keywords: [
-      "bhttp",
-      "rfc9292",
+      "ohttp",
     ],
     engines: {
       "node": ">=16.0.0",
