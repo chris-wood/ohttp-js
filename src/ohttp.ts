@@ -35,6 +35,17 @@ function checkHpkeCiphersuite(kem: Kem, kdf: Kdf, aead: Aead) {
   }
 }
 
+function encodeSymmetricAlgorithms(kdf: Kdf, aead: Aead): Uint8Array {
+  return new Uint8Array([
+    0x00,
+    0x04, // Length
+    (kdf >> 8) & 0xFF,
+    kdf & 0xFF,
+    (aead >> 8) & 0xFF,
+    aead & 0xFF,
+  ]);
+}
+
 export class KeyConfig {
   public keyId: number;
   public kem: Kem;
@@ -75,6 +86,7 @@ export class PublicKeyConfig {
   public kem: Kem;
   public kdf: Kdf;
   public aead: Aead;
+  public suite: CipherSuite;
   public publicKey: CryptoKey; // XXX(caw): should this be public?
 
   constructor(
@@ -93,6 +105,12 @@ export class PublicKeyConfig {
     this.kem = kem;
     this.kdf = kdf;
     this.aead = aead;
+    this.suite = new CipherSuite({
+      kem: this.kem,
+      kdf: this.kdf,
+      aead: this.aead,
+    });
+
     this.publicKey = publicKey;
   }
 }
@@ -245,6 +263,55 @@ export class Server {
 
     const encapRequestBody = new Uint8Array(await request.arrayBuffer());
     return this.decodeAndDecapsulate(encapRequestBody);
+  }
+
+  async encodeKeyConfig(): Promise<Uint8Array> {
+    const preamble = new Uint8Array([
+      this.config.keyId & 0xFF,
+      (this.config.kem >> 8) & 0xFF,
+      this.config.kem & 0xFF,
+    ]);
+    const publicConfig = await this.config.publicConfig();
+    const kemContext = await this.suite.kemContext();
+    const encodedKey = new Uint8Array(
+      await kemContext.serializePublicKey(
+        publicConfig.publicKey,
+      ),
+    );
+    const algorithms = encodeSymmetricAlgorithms(
+      this.config.kdf,
+      this.config.aead,
+    );
+    return concatArrays(concatArrays(preamble, encodedKey), algorithms);
+  }
+}
+
+export class ClientConstructor {
+  async clientForConfig(config: Uint8Array): Promise<Client> {
+    const keyId = config[0];
+    const kemId = (config[1] << 8) | config[2];
+    const suite = new CipherSuite({
+      kem: kemId,
+      kdf: Kdf.HkdfSha256, // Garbage (to create the suite)
+      aead: Aead.Aes128Gcm, // Garbage (to create the suite)
+    });
+    const kemContext = await suite.kemContext();
+    const publicKey = await kemContext.deserializePublicKey(
+      config.slice(3, 3 + suite.kemPublicKeySize),
+    );
+    const offset = 3 + suite.kemPublicKeySize + 2; // skip over the length, since we pick the first one pair of symmetric algorithms
+    const kdfId = (config[offset] << 8) | config[offset + 1];
+    const aeadId = (config[offset + 2] << 8) | config[offset + 3];
+
+    const publicKeyConfig = new PublicKeyConfig(
+      keyId,
+      kemId,
+      kdfId,
+      aeadId,
+      publicKey,
+    );
+
+    return new Client(publicKeyConfig);
   }
 }
 
