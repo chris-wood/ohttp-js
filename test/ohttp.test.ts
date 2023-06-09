@@ -1,8 +1,18 @@
-import { assertEquals, assertStrictEquals, assertNotEquals } from "testing/asserts.ts";
+import {
+  assertEquals,
+  assertNotEquals,
+  assertStrictEquals,
+} from "testing/asserts.ts";
 import { describe, it } from "testing/bdd.ts";
 
 import { loadCrypto } from "../src/webCrypto.ts";
-import { Client, ClientConstructor, DeterministicKeyConfig, KeyConfig, Server } from "../src/ohttp.ts";
+import {
+  Client,
+  ClientConstructor,
+  DeterministicKeyConfig,
+  KeyConfig,
+  Server,
+} from "../src/ohttp.ts";
 
 async function randomBytes(l: number): Promise<Uint8Array> {
   const buffer = new Uint8Array(l);
