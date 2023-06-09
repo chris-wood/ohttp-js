@@ -81,6 +81,25 @@ export class KeyConfig {
   }
 }
 
+export class DeterministicKeyConfig extends KeyConfig {
+  constructor(keyId: number, ikm: Uint8Array) {
+    super(keyId);
+    if (keyId < 0 || keyId > 255) {
+      throw new InvalidConfigIdError(invalidKeyIdErrorString);
+    }
+    this.keyId = keyId;
+    this.kem = Kem.DhkemX25519HkdfSha256;
+    this.kdf = Kdf.HkdfSha256;
+    this.aead = Aead.Aes128Gcm;
+    const suite = new CipherSuite({
+      kem: this.kem,
+      kdf: this.kdf,
+      aead: this.aead,
+    });
+    this.keyPair = suite.deriveKeyPair(ikm);
+  }
+}
+
 export class PublicKeyConfig {
   public keyId: number;
   public kem: Kem;
