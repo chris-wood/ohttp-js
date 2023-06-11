@@ -1,5 +1,6 @@
 export {
   Client,
+  DeterministicKeyConfig,
   KeyConfig,
   PublicKeyConfig,
   ServerResponse,
