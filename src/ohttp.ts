@@ -51,7 +51,7 @@ export class KeyConfig {
   public kem: Kem;
   public kdf: Kdf;
   public aead: Aead;
-  public keyPair: Promise<CryptoKeyPair>; // XXX(caw): should this be public?
+  public keyPair: Promise<CryptoKeyPair>;
 
   constructor(keyId: number) {
     if (keyId < 0 || keyId > 255) {
@@ -106,7 +106,7 @@ export class PublicKeyConfig {
   public kdf: Kdf;
   public aead: Aead;
   public suite: CipherSuite;
-  public publicKey: CryptoKey; // XXX(caw): should this be public?
+  public publicKey: CryptoKey;
 
   constructor(
     keyId: number,
@@ -131,6 +131,30 @@ export class PublicKeyConfig {
     });
 
     this.publicKey = publicKey;
+  }
+
+  async encode(): Promise<Uint8Array> {
+    const preamble = new Uint8Array([
+      this.keyId & 0xFF,
+      (this.kem >> 8) & 0xFF,
+      this.kem & 0xFF,
+    ]);
+    const kemContext = await this.suite.kemContext();
+    const encodedKey = new Uint8Array(
+      await kemContext.serializePublicKey(
+        this.publicKey,
+      ),
+    );
+    const algorithms = encodeSymmetricAlgorithms(
+      this.kdf,
+      this.aead,
+    );
+    return concatArrays(concatArrays(preamble, encodedKey), algorithms);
+  }
+
+  async encodeAsList(): Promise<Uint8Array> {
+    const encodedConfig = await this.encode();
+    return concatArrays(i2Osp(encodedConfig.length, 2), encodedConfig);
   }
 }
 
@@ -232,7 +256,6 @@ export class Server {
   async decapsulate(
     clientRequest: ClientRequest,
   ): Promise<ServerResponseContext> {
-    // XXX(caw): move to header and create during construction (in prepare helper function)
     let hdr = new Uint8Array([this.config.keyId]);
     hdr = concatArrays(hdr, i2Osp(this.suite.kem, 2));
     hdr = concatArrays(hdr, i2Osp(this.suite.kdf, 2));
@@ -285,23 +308,13 @@ export class Server {
   }
 
   async encodeKeyConfig(): Promise<Uint8Array> {
-    const preamble = new Uint8Array([
-      this.config.keyId & 0xFF,
-      (this.config.kem >> 8) & 0xFF,
-      this.config.kem & 0xFF,
-    ]);
     const publicConfig = await this.config.publicConfig();
-    const kemContext = await this.suite.kemContext();
-    const encodedKey = new Uint8Array(
-      await kemContext.serializePublicKey(
-        publicConfig.publicKey,
-      ),
-    );
-    const algorithms = encodeSymmetricAlgorithms(
-      this.config.kdf,
-      this.config.aead,
-    );
-    return concatArrays(concatArrays(preamble, encodedKey), algorithms);
+    return publicConfig.encode();
+  }
+
+  async encodeKeyConfigAsList(): Promise<Uint8Array> {
+    const publicConfig = await this.config.publicConfig();
+    return publicConfig.encodeAsList();
   }
 }
 
@@ -348,7 +361,6 @@ export class Client {
   }
 
   async encapsulate(encodedRequest: Uint8Array): Promise<ClientRequestContext> {
-    // XXX(caw): move to header and create during construction (in prepare helper function)
     let hdr = new Uint8Array([this.config.keyId]);
     hdr = concatArrays(hdr, i2Osp(this.suite.kem, 2));
     hdr = concatArrays(hdr, i2Osp(this.suite.kdf, 2));

@@ -152,4 +152,32 @@ describe("test OHTTP end-to-end", () => {
     const body = await finalResponse.arrayBuffer();
     assertStrictEquals(new TextDecoder().decode(new Uint8Array(body)), "baz");
   });
+
+  it("KeyConfig encoding and decoding", async () => {
+    const keyId = 0x01;
+    const seed = await randomBytes(32);
+
+    // Create a pair of servers with the same config and make sure they result in the same public key configuration
+    const keyConfig = new DeterministicKeyConfig(keyId, seed);
+    const publicConfig = await keyConfig.publicConfig();
+    const encodedConfig = await publicConfig.encode();
+
+    // Ensure the preamble matches
+    assertEquals(encodedConfig.slice(0, 3), new Uint8Array([0x01, 0x00, 0x20]));
+
+    // Ensure the public key matches
+    const kemContext = await publicConfig.suite.kemContext();
+    const encodedKey = new Uint8Array(
+      await kemContext.serializePublicKey(
+        publicConfig.publicKey,
+      ),
+    );
+    assertEquals(encodedConfig.slice(3, 3 + encodedKey.length), encodedKey);
+
+    // Ensure the tail matches
+    assertEquals(
+      encodedConfig.slice(3 + encodedKey.length, 3 + encodedKey.length + 6),
+      new Uint8Array([0x00, 0x04, 0x00, 0x01, 0x00, 0x01]),
+    );
+  });
 });
