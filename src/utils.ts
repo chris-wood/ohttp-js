@@ -44,10 +44,10 @@ export function i2Osp(n: number, w: number): Uint8Array {
 }
 
 /**
- * TODO(caw): writeme
- * @param a
- * @param b
- * @returns
+ * Return a new array that is the concatennation of the two input arrays.
+ * @param a array
+ * @param b array
+ * @returns concatenation of a and b
  */
 export function concatArrays(a: Uint8Array, b: Uint8Array): Uint8Array {
   const c = new Uint8Array(a.length + b.length);
@@ -57,10 +57,10 @@ export function concatArrays(a: Uint8Array, b: Uint8Array): Uint8Array {
 }
 
 /**
- * TODO(caw): writeme
- * @param a
- * @param b
- * @returns
+ * Return the maximum of two numbers.
+ * @param a number
+ * @param b number
+ * @returns the larger of a and b
  */
 export function max(a: number, b: number): number {
   if (a > b) {
