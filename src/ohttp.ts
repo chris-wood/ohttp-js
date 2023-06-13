@@ -15,7 +15,7 @@ const invalidKeyIdErrorString = "Invalid configuration ID";
 const invalidHpkeCiphersuiteErrorString = "Invalid HPKE ciphersuite";
 const invalidContentTypeErrorString = "Invalid content type";
 
-const requestInfoLabel = "message/bhttp response";
+const requestInfoLabel = "message/bhttp request";
 const responseInfoLabel = "message/bhttp response";
 const aeadKeyLabel = "key";
 const aeadNonceLabel = "nonce";
@@ -245,15 +245,9 @@ export class ServerResponseContext {
 
 export class Server {
   private config: KeyConfig;
-  private suite: CipherSuite;
 
   constructor(config: KeyConfig) {
     this.config = config;
-    this.suite = new CipherSuite({
-      kem: this.config.kem,
-      kdf: this.config.kdf,
-      aead: this.config.aead,
-    });
   }
 
   async decapsulate(
@@ -264,7 +258,7 @@ export class Server {
     info = concatArrays(info, clientRequest.hdr);
 
     const recipientKeyPair = await this.config.keyPair;
-    const recipient = await this.suite.createRecipientContext({
+    const recipient = await clientRequest.suite.createRecipientContext({
       recipientKey: recipientKeyPair,
       enc: clientRequest.enc,
       info: info,
@@ -276,11 +270,11 @@ export class Server {
 
     const exportContext = new TextEncoder().encode(responseInfoLabel);
     const secret = new Uint8Array(
-      await recipient.export(exportContext, this.suite.aeadKeySize),
+      await recipient.export(exportContext, clientRequest.suite.aeadKeySize),
     );
 
     return new ServerResponseContext(
-      this.suite,
+      clientRequest.suite,
       request,
       secret,
       clientRequest.enc,
@@ -292,15 +286,30 @@ export class Server {
       throw new InvalidEncodingError(invalidEncodingErrorString);
     }
     const hdr = msg.slice(0, requestHdrLength);
+    const keyId = hdr[0];
+    const kemId = (hdr[1] << 0xFF) | hdr[2];
+    const kdfId = (hdr[3] << 0xFF) | hdr[4];
+    const aeadId = (hdr[5] << 0xFF) | hdr[6];
+
+    if (keyId != this.config.keyId) {
+      throw new InvalidConfigIdError(invalidKeyIdErrorString);
+    }
+    checkHpkeCiphersuite(kemId, kdfId, aeadId);
     
-    const encSize = this.suite.kemEncSize;
+    const suite = new CipherSuite({
+      kem: kemId,
+      kdf: kdfId,
+      aead: aeadId,
+    });
+    
+    const encSize = suite.kemEncSize;
     if (msg.length < requestHdrLength+encSize) {
       throw new InvalidEncodingError(invalidEncodingErrorString);
     }
     const enc = msg.slice(requestHdrLength, requestHdrLength+encSize);
     
     const encRequest = msg.slice(requestHdrLength+encSize, msg.length);
-    return await this.decapsulate(new ClientRequest(hdr, enc, encRequest));
+    return await this.decapsulate(new ClientRequest(suite, hdr, enc, encRequest));
   }
 
   async decapsulateRequest(request: Request): Promise<ServerResponseContext> {
@@ -411,11 +420,13 @@ export class Client {
 }
 
 class ClientRequest {
+  public readonly suite: CipherSuite;
   public readonly hdr: Uint8Array;
   public readonly enc: Uint8Array;
   public readonly encapsulatedReq: Uint8Array;
 
-  constructor(hdr: Uint8Array, enc: Uint8Array, encapsulatedReq: Uint8Array) {
+  constructor(suite: CipherSuite, hdr: Uint8Array, enc: Uint8Array, encapsulatedReq: Uint8Array) {
+    this.suite = suite;
     this.hdr = hdr;
     this.enc = enc;
     this.encapsulatedReq = encapsulatedReq;
@@ -450,7 +461,7 @@ class ClientRequestContext {
     encapsulatedReq: Uint8Array,
     secret: Uint8Array,
   ) {
-    this.request = new ClientRequest(hdr, enc, encapsulatedReq);
+    this.request = new ClientRequest(suite, hdr, enc, encapsulatedReq);
     this.secret = secret;
     this.suite = suite;
   }
