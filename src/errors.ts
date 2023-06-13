@@ -42,6 +42,11 @@ export class InvalidConfigIdError extends OhttpError {}
 export class InvalidContentTypeError extends OhttpError {}
 
 /**
+ * Invalid message encoding.
+ */
+export class InvalidEncodingError extends OhttpError {}
+
+/**
  * A TBD failure or error.
  */
 export class TodoError extends OhttpError {}

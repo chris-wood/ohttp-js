@@ -3,12 +3,14 @@ import { concatArrays, i2Osp, max } from "./utils.ts";
 import {
   InvalidConfigIdError,
   InvalidContentTypeError,
+  InvalidEncodingError,
   InvalidHpkeCiphersuiteError,
 } from "./errors.ts";
 
 import { Aead, CipherSuite, Kdf, Kem } from "hpke";
 import { BHttpDecoder, BHttpEncoder } from "bhttp";
 
+const invalidEncodingErrorString = "Invalid message encoding";
 const invalidKeyIdErrorString = "Invalid configuration ID";
 const invalidHpkeCiphersuiteErrorString = "Invalid HPKE ciphersuite";
 const invalidContentTypeErrorString = "Invalid content type";
@@ -17,6 +19,7 @@ const requestInfoLabel = "message/bhttp response";
 const responseInfoLabel = "message/bhttp response";
 const aeadKeyLabel = "key";
 const aeadNonceLabel = "nonce";
+const requestHdrLength = 7; // len(keyID) + len(kemID) + len(kdfID) + len(aeadID)
 
 async function randomBytes(l: number): Promise<Uint8Array> {
   const buffer = new Uint8Array(l);
@@ -256,14 +259,9 @@ export class Server {
   async decapsulate(
     clientRequest: ClientRequest,
   ): Promise<ServerResponseContext> {
-    let hdr = new Uint8Array([this.config.keyId]);
-    hdr = concatArrays(hdr, i2Osp(this.suite.kem, 2));
-    hdr = concatArrays(hdr, i2Osp(this.suite.kdf, 2));
-    hdr = concatArrays(hdr, i2Osp(this.suite.aead, 2));
-
     let info = new Uint8Array(new TextEncoder().encode(requestInfoLabel));
     info = concatArrays(info, new Uint8Array([0x00]));
-    info = concatArrays(info, hdr);
+    info = concatArrays(info, clientRequest.hdr);
 
     const recipientKeyPair = await this.config.keyPair;
     const recipient = await this.suite.createRecipientContext({
@@ -290,10 +288,19 @@ export class Server {
   }
 
   async decodeAndDecapsulate(msg: Uint8Array): Promise<ServerResponseContext> {
+    if (msg.length < requestHdrLength) {
+      throw new InvalidEncodingError(invalidEncodingErrorString);
+    }
+    const hdr = msg.slice(0, requestHdrLength);
+    
     const encSize = this.suite.kemEncSize;
-    const enc = msg.slice(0, encSize);
-    const encRequest = msg.slice(encSize, msg.length);
-    return await this.decapsulate(new ClientRequest(enc, encRequest));
+    if (msg.length < requestHdrLength+encSize) {
+      throw new InvalidEncodingError(invalidEncodingErrorString);
+    }
+    const enc = msg.slice(requestHdrLength, requestHdrLength+encSize);
+    
+    const encRequest = msg.slice(requestHdrLength+encSize, msg.length);
+    return await this.decapsulate(new ClientRequest(hdr, enc, encRequest));
   }
 
   async decapsulateRequest(request: Request): Promise<ServerResponseContext> {
@@ -384,8 +391,9 @@ export class Client {
     );
     const clientRequest = new ClientRequestContext(
       this.suite,
-      encRequest,
+      hdr,
       enc,
+      encRequest,
       secret,
     );
 
@@ -403,17 +411,19 @@ export class Client {
 }
 
 class ClientRequest {
-  public readonly encapsulatedReq: Uint8Array;
+  public readonly hdr: Uint8Array;
   public readonly enc: Uint8Array;
+  public readonly encapsulatedReq: Uint8Array;
 
-  constructor(enc: Uint8Array, encapsulatedReq: Uint8Array) {
-    this.encapsulatedReq = encapsulatedReq;
+  constructor(hdr: Uint8Array, enc: Uint8Array, encapsulatedReq: Uint8Array) {
+    this.hdr = hdr;
     this.enc = enc;
+    this.encapsulatedReq = encapsulatedReq;
   }
 
   encode(): Uint8Array {
-    const result = concatArrays(this.enc, this.encapsulatedReq);
-    return result;
+    var prefix = concatArrays(this.hdr, this.enc);
+    return concatArrays(prefix, this.encapsulatedReq);
   }
 
   request(relayUrl: string): Request {
@@ -435,11 +445,12 @@ class ClientRequestContext {
 
   constructor(
     suite: CipherSuite,
-    encapsulatedReq: Uint8Array,
+    hdr: Uint8Array,
     enc: Uint8Array,
+    encapsulatedReq: Uint8Array,
     secret: Uint8Array,
   ) {
-    this.request = new ClientRequest(enc, encapsulatedReq);
+    this.request = new ClientRequest(hdr, enc, encapsulatedReq);
     this.secret = secret;
     this.suite = suite;
   }
